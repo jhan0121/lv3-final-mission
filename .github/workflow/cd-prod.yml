@@ -1,0 +1,128 @@
+name: CD Prod Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+
+    env:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:final
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: testpw
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: tag가 jhan0121/prod branch에 있는지 검증
+        run: |
+          git fetch origin jhan0121/prod
+          if git merge-base --is-ancestor ${{ github.sha }} origin/jhan0121/prod; then
+            echo "Tag is an ancestor of the jhan0121/prod branch. Proceeding with deployment."
+          else
+            echo "Error: This tag is not on the jhan0121/prod branch."
+            exit 1
+          fi
+
+      - name: Git tag에서 버전 정보 추출
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 21
+
+      - name: Gradle Wrapper 실행 권한 부여
+        run: chmod +x ./gradlew
+
+      - name: 전체 빌드
+        run: ./gradlew clean build -x test --stacktrace -Dspring.profiles.active=prod
+
+      - name: Docker Hub Login
+        run: echo "${{ secrets.DOCKER_ACCESS_TOKEN }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ secrets.PROD_IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }}
+            ${{ secrets.PROD_IMAGE_NAME }}:latest
+
+  deploy:
+    runs-on: [ self-hosted, flint-prod ]
+    needs: build-and-push
+
+    env:
+      SPRING_PROFILES_ACTIVE: prod
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create env file for Docker Compose
+        run: |
+          cat <<EOF > .env
+          IMAGE_NAME=${{ secrets.PROD_IMAGE_NAME }}
+          IMAGE_TAG=${{ needs.build-and-push.outputs.version }}
+          EOF
+
+      - name: Create env file for env.prod file
+        working-directory: ./estime-api
+        run: |
+          cat <<EOF > .env.prod
+          ${{ secrets.ENV_PROD }}
+          EOF
+
+      - name: Deploy with Docker Compose
+        run: |
+          docker compose -f docker-compose.prod.yml pull
+          docker compose -f docker-compose.prod.yml up -d
+
+      - name: healthcheck application containers
+        run: |
+          echo "Waiting 10 seconds for application to start up..."
+          sleep 10
+          echo "Starting health checks..."
+          for i in {1..12}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/actuator/health || true)
+            if [ "$STATUS" -eq 200 ]; then
+              echo "✅ Deployment successful! Application is healthy."
+              docker ps -a
+              exit 0 # 배포 성공
+            fi
+            echo "Attempt $i: Application not ready yet (Status: $STATUS). Retrying in 5 seconds..."
+            sleep 5
+          done
+          
+          echo "❌ Health check failed after 60 seconds."
+          echo "==== docker container status ===="
+          docker ps -a
+          echo "==== docker container logs (api) ===="
+          docker logs $(docker ps --filter "name=api" --format "{{.ID}}") || true
+          
+          exit 1 # 배포 실패
+
+      - name: Clean up unused Docker resources
+        if: always()
+        run: docker system prune -a -f
