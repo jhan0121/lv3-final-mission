@@ -13,12 +13,7 @@ jobs:
       version: ${{ steps.get_version.outputs.VERSION }}
 
     env:
-      SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATASOURCE_URL: jdbc:h2:mem:final
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: testpw
-      JWT_SECRET_KEY: testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttest
-      JWT_ISSUER: test
+      DATA_SERVICE_KEY: ${{ secrets.DATA_SERVICE_KEY }}
 
     steps:
       - name: Checkout
