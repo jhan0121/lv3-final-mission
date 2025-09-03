@@ -78,8 +78,8 @@ jobs:
 
       - name: Deploy with Docker Compose
         run: |
-          docker compose -f docker-compose.dev.yml pull
-          docker compose -f docker-compose.dev.yml up -d
+          docker compose -f docker-compose-dev.yml pull
+          docker compose -f docker-compose-dev.yml up -d
 
       - name: Debug running containers
         run: docker ps -a
