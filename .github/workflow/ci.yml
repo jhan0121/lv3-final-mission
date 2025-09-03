@@ -1,0 +1,61 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+    branches:
+      [ jhan0121/dev, jhan0121/prod ]
+    types:
+      [ opened, synchronize, reopened ]
+
+jobs:
+  Continuous-Integration:
+    runs-on: ubuntu-latest
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:h2:mem:final
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: testpw
+
+    steps:
+      - name: Github Repository 파일 불러오기
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: JDK 21 버전 설치
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: 21
+
+      - name: Gradle Wrapper 실행 권한 부여
+        run: chmod +x ./gradlew
+
+      - name: 전체 빌드 및 테스트
+        run: ./gradlew clean build
+
+      - name: Close PR, if build fail
+        if: ${{ failure() }}
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ github.TOKEN }}
+          script: |
+            const pull_number = ${{ github.event.pull_request.number }}
+            const updated_title = `[BUILD FAIL] ${{ github.event.pull_request.title }}`
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pull_number,
+              body: '빌드에 실패했습니다.',
+              event: 'REQUEST_CHANGES'
+            })
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pull_number,
+              title: updated_title,
+              state: 'closed'
+            })
