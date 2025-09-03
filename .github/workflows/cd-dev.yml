@@ -14,10 +14,6 @@ jobs:
     env:
       SPRING_PROFILES_ACTIVE: dev
 
-      SPRING_DATASOURCE_URL: jdbc:h2:mem:final
-      SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: testpw
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4

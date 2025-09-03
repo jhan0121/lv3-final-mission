@@ -7,7 +7,7 @@ INSERT INTO reservation_time(start_at)
 VALUES ('10:00'),
        ('11:00');
 
-INSERT INTO meeting_room(name, describe, available_people_count)
+INSERT INTO meeting_room(name, reason, available_people_count)
 VALUES ('test1', 'test1', 10),
        ('test2', 'test2', 20);
 
